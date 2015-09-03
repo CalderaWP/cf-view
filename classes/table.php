@@ -1,5 +1,13 @@
 <?php
-
+/**
+ * Create a view table using FooTable 2
+ *
+ * @package   cf_view
+ * @author    Josh Pollock <Josh@CalderaWP.com>
+ * @license   GPL-2.0+
+ * @link
+ * @copyright 2015 Josh Pollock for CalderaWP LLC
+ */
 namespace calderawp\view;
 
 
@@ -45,18 +53,27 @@ class table{
 	 *
 	 * @param array $fields Fields to show
 	 * @param array $entries Entries to show
+	 * @param string $form_id The ID of form showing entries for.
 	 * @param null|int $edit_id Optional. ID of page with form we can edit on, or null to disable editing.
-	 * @param null|string $edit_permission Optional. Capabiluity for edditing.
+	 * @param null|string $edit_permission Optional. Capability for editing.
 	 */
-	function __construct( $fields, $entries, $edit_id = null, $edit_permission = null ) {
+	function __construct( $fields, $entries, $form_id, $edit_id = null, $edit_permission = null ) {
 		if ( $edit_id ) {
 			$this->edit_mode = true;
 		}
+
+		/**
+		 * Filter fields for this CF View Table
+		 *
+		 * @since 0.0.2
+		 *
+		 */
+		$fields = apply_filters( 'cf_view_table_fields', $fields, $form_id );
 		$header = $this->header( $fields );
 		$rows = $this->rows( $entries, $fields, get_permalink( $edit_id ) );
 
 		if ( is_string( $header ) && is_string( $rows ) ) {
-			$this->make_table( $header, $rows );
+			$this->make_table( $header, $rows, $form_id );
 		}
 	}
 
@@ -80,9 +97,10 @@ class table{
 	 *
 	 * @param string $header Header
 	 * @param string $rows
+	 * @param string $form_id The ID of form showing entries for.
 	 */
-	protected function make_table( $header, $rows ) {
-		$table = sprintf( '<div id="cf-view"><table class="footable" id="cf-view-table">%1s <tbody>%2s</tbody></table></div>', $header, $rows );
+	protected function make_table( $header, $rows, $form_id ) {
+		$table = sprintf( '<div id="cf-view-%1s"><table class="cf-view-table" id="cf-view-table">%2s <tbody>%3s</tbody></table></div>', $form_id, $header, $rows );
 		$table = $this->extra( $table );
 		$this->markup = $table;
 	}

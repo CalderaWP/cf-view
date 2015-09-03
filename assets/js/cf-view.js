@@ -1,6 +1,4 @@
-/**
- * Created by josh on 8/18/15.
- */
+/* globals jQuery, CF_VIEW_FOO_TABLE_OPTIONS */
 jQuery( document ).ready( function ( $ ) {
     var full_data = $( '#cf-view-full-parts' ).data( 'content' );
 
@@ -40,4 +38,7 @@ jQuery( document ).ready( function ( $ ) {
     function show( el ) {
         el.css( 'visibility', 'visible' ).attr( 'aria-hidden', 'false' );
     }
+
+    $('.cf-view-table' ).footable( CF_VIEW_FOO_TABLE_OPTIONS );
+
 } );

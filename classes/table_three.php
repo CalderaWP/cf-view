@@ -130,11 +130,15 @@ class table_three {
 	public function get_js_config() {
 		$config = array(
 			'cascade' => "true",
-			'paging' => "true",
+			"paging" => array(
+				'limit' => 10
+			),
 			'sorting' => "true",
-			'showToggle' => "true",
-			'columns' => $this->columns,
+			'toggleColumn' => "last",
+			'expandFirst' => "true",
+			'empty' => __( 'No Entries Found', 'cf-view' ),
 			'rows' => $this->rows,
+			'columns' => $this->columns,
 		);
 
 		/**
@@ -227,7 +231,8 @@ class table_three {
 		if ( $this->edit_mode ) {
 			$this->columns[] = array(
 				'name' => 'edit',
-				'title' => __( 'Edit', 'cf-view' )
+				'title' => __( 'Edit', 'cf-view' ),
+				'breakpoints' => 'xs'
 			);
 		}
 
@@ -267,8 +272,6 @@ class table_three {
 			$_row[ 'entry_id' ] = $entry_id = $entry['_entry_id'];
 
 			$data = $entry[ 'data' ];
-
-
 			foreach( $fields  as $field ) {
 
 				$field_slug = $field[ 'slug' ];
@@ -292,11 +295,19 @@ class table_three {
 			}
 
 
+			$options = apply_filters( 'cf_view_row_options', $default, $entry_id, $row_id, $this->form_id );
+			if ( 1 == $row_id ) {
+				$this->rows[] = array(
+					'value' => $_row,
+					'options' => array(
+						'expanded' => true,
+					)
+				);
+			}else{
+				$this->rows[] = $_row;
+			}
 
-			$this->rows[] = array(
-				'options' => apply_filters( 'cf_view_row_options', $default, $entry_id, $row_id, $this->form_id ),
-				'value' => $_row
-			);
+
 
 			$row_id++;
 

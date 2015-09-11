@@ -14,7 +14,7 @@ if ( ! defined( 'CFCORE_PATH') ) {
  * @since 0.0.1
  */
 add_action( 'wp_enqueue_scripts', function() {
-	wp_register_script( 'cf-view', plugin_dir_url( __FILE__ ) .'/assets/js/cf-view.js', array( 'jquery', 'footable-min' ), false, true );
+	wp_register_script( 'cf-view', plugin_dir_url( __FILE__ ) .'/assets/js/cf-view.js', array( 'jquery' ), false, true );
 });
 
 /**
@@ -62,12 +62,21 @@ function cf_view( $form_id, $fields = array(), $editor_id = null  ) {
 		}
 
 		include_once dirname( __FILE__ ) . '/classes/table.php';
+		$foo_table = cf_view_foo_table();
 
 		wp_enqueue_script( 'cf-view' );
 		$class = new \calderawp\view\table( $fields, $entries, $editor_id );
+		$out = $foo_table->inline_dynamic_css() . $foo_table->inline_dynamic_js() . $class->get_markup();
+		return $out;
 
-		return $class->get_markup();
 	}
 
+}
+
+function cf_view_foo_table() {
+	include_once( dirname( __FILE__ ) . '/footable/footable.php' );
+	$foo_table = new calderawp\view\FooTable( CF_VIEW_FOOTABLE_PATH  );
+	$foo_table->add_scripts();
+	return $foo_table;
 }
 

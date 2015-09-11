@@ -82,7 +82,8 @@ class table{
 	 * @param string $rows
 	 */
 	protected function make_table( $header, $rows ) {
-		$table = sprintf( '<div id="cf-view"><table class="footable" id="cf-view-table">%1s <tbody>%2s</tbody></table></div>', $header, $rows );
+		$class = apply_filters( 'cf_view_table_class', 'cf-view-table' );
+		$table = sprintf( '<div id="cf-view"><div id="cf-view-filter"></div> <table class="%1s" id="cf-view-table" data-filter="#cf-view-filter">%2s <tbody>%3s</tbody></table></div>', $class, $header, $rows );
 		$table = $this->extra( $table );
 		$this->markup = $table;
 	}

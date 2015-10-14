@@ -1,7 +1,22 @@
 <?php
-/*
- Plugin Name: CF View
-
+/**
+ * @package   CF View
+ * @author    Josh Pollock for CalderaWP LLC <Josh@CalderaWP.com>
+ * @license   GPL-2.0+
+ * @link
+ * @copyright 2014 Josh Pollock for CalderaWP LLC <Josh@CalderaWP.com>
+ *
+ * @wordpress-plugin
+ * Plugin Name: CF View
+ * Plugin URI: http://calderawp.com
+ * Description: Front-end viewer for Caldera Forms
+ * Version:     0.0.4
+ * Author:      Josh Pollock for CalderaWP LLC
+ * Author URI:  http://calderawp.com
+ * Text Domain: cf-view
+ * License:     GPL-2.0+
+ * License URI: http://www.gnu.org/licenses/gpl-2.0.txt
+ * Domain Path: /languages
  */
 if ( ! defined( 'CFCORE_PATH') ) {
 	return;

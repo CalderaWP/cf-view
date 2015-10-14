@@ -7,13 +7,13 @@ Powered by [FooTable](http://fooplugins.github.io/) by our good friends at [FooP
 
 ### Usage
 * Show all fields of a form:
-    *`[cf_view id="CF557dd7b7739ac"]`
+   * `[cf_view id="CF557dd7b7739ac"]`
 * Show certain fields of a form:
-    *`[cf_view id="CF557dd7b7739ac" fields="jedi,planet,ship"]`
+   * `[cf_view id="CF557dd7b7739ac" fields="jedi,planet,ship"]`
 * Add a link to edit entry:
-    *`[cf_view id="CF557dd7b7739ac" editor_id="42"]`
-    * Note: `editor_id` must be the ID of a post or page with this form in it be edited.
-    * Note: We are likey to make that smarter soon.
+   * `[cf_view id="CF557dd7b7739ac" editor_id="42"]`
+   * Note: `editor_id` must be the ID of a post or page with this form in it be edited.
+   * Note: We are likey to make that smarter soon.
 
 ### Things Still To Do
 * Incorporate all of FooTable's shiny sorting, paging and filtering.

@@ -3055,3 +3055,1908 @@
 	 */
 	F.Defaults.prototype.expandFirst = false;
 })(FooTable);
+(function(F){
+	F.Filter = F.Class.extend(/** @lends FooTable.Filter */{
+		/**
+		 * The filter object contains the query to filter by and the columns to apply it to.
+		 * @constructs
+		 * @extends FooTable.Class
+		 * @param {string} name - The name for the filter.
+		 * @param {string} query - The query for the filter.
+		 * @param {Array.<FooTable.Column>} columns - The columns to apply the query to.
+		 * @param {string} [space="AND"] - How the query treats space chars.
+		 * @returns {FooTable.Filter}
+		 */
+		construct: function(name, query, columns, space){
+			/**
+			 * The name of the filter.
+			 * @instance
+			 * @type {string}
+			 */
+			this.name = name;
+			/**
+			 * A string specifying how the filter treats space characters. Can be either "OR" or "AND".
+			 * @instance
+			 * @type {string}
+			 */
+			this.space = F.is.string(space) && (space == 'OR' || space == 'AND') ? space : 'AND';
+			/**
+			 * The query for the filter.
+			 * @instance
+			 * @type {(string|FooTable.Query)}
+			 */
+			this.query = new F.Query(query, this.space);
+			/**
+			 * The columns to apply the query to.
+			 * @instance
+			 * @type {Array.<FooTable.Column>}
+			 */
+			this.columns = columns;
+		},
+		/**
+		 * Checks if the current filter matches the supplied string.
+		 * If the current query property is a string it will be auto converted to a {@link FooTable.Query} object to perform the match.
+		 * @instance
+		 * @param {string} str - The string to check.
+		 * @returns {boolean}
+		 */
+		match: function(str){
+			if (!F.is.string(str)) return false;
+			if (F.is.string(this.query)){
+				this.query = new F.Query(this.query, this.space);
+			}
+			return this.query instanceof F.Query ? this.query.match(str) : false;
+		},
+		/**
+		 * Checks if the current filter matches the supplied {@link FooTable.Row}.
+		 * @instance
+		 * @param {FooTable.Row} row - The row to check.
+		 * @returns {boolean}
+		 */
+		matchRow: function(row){
+			var self = this, text = F.arr.map(row.cells, function(cell){
+				return F.arr.contains(self.columns, cell.column) ? cell.filterValue : null;
+			}).join(' ');
+			return self.match(text);
+		}
+	});
+
+})(FooTable);
+(function ($, F) {
+	F.Filtering = F.Component.extend(/** @lends FooTable.Filtering */{
+		/**
+		 * The filtering component adds a search input and column selector dropdown to the table allowing users to filter the using space delimited queries.
+		 * @constructs
+		 * @extends FooTable.Component
+		 * @param {FooTable.Table} table - The parent {@link FooTable.Table} object for the component.
+		 * @returns {FooTable.Filtering}
+		 */
+		construct: function (table) {
+			// call the constructor of the base class
+			this._super(table, table.o.filtering.enabled);
+
+			/* PUBLIC */
+			/**
+			 * The filters to apply to the current {@link FooTable.Rows#array}.
+			 * @instance
+			 * @type {Array.<FooTable.Filter>}
+			 */
+			this.filters = table.o.filtering.filters;
+			/**
+			 * The delay in milliseconds before the query is auto applied after a change.
+			 * @instance
+			 * @type {number}
+			 */
+			this.delay = table.o.filtering.delay;
+			/**
+			 * The minimum number of characters allowed in the search input before it is auto applied.
+			 * @instance
+			 * @type {number}
+			 */
+			this.min = table.o.filtering.min;
+			/**
+			 * Specifies how whitespace in a filter query is handled.
+			 * @instance
+			 * @type {string}
+			 */
+			this.space = table.o.filtering.space;
+			/**
+			 * The placeholder text to display within the search $input.
+			 * @instance
+			 * @type {string}
+			 */
+			this.placeholder = table.o.filtering.placeholder;
+			/**
+			 * The position of the $search input within the filtering rows cell.
+			 * @type {string}
+			 */
+			this.position = table.o.filtering.position;
+			/**
+			 * The jQuery row object that contains all the filtering specific elements.
+			 * @instance
+			 * @type {jQuery}
+			 */
+			this.$row = null;
+			/**
+			 * The jQuery cell object that contains the search input and column selector.
+			 * @instance
+			 * @type {jQuery}
+			 */
+			this.$cell = null;
+			/**
+			 * The jQuery object of the column selector dropdown.
+			 * @instance
+			 * @type {jQuery}
+			 */
+			this.$dropdown = null;
+			/**
+			 * The jQuery object of the search input.
+			 * @instance
+			 * @type {jQuery}
+			 */
+			this.$input = null;
+			/**
+			 * The jQuery object of the search button.
+			 * @instance
+			 * @type {jQuery}
+			 */
+			this.$button = null;
+
+			/* PRIVATE */
+			/**
+			 * The timeout ID for the filter changed event.
+			 * @instance
+			 * @private
+			 * @type {?number}
+			 */
+			this._filterTimeout = null;
+		},
+
+		/* PROTECTED */
+		/**
+		 * Checks the supplied data and options for the filtering component.
+		 * @instance
+		 * @protected
+		 * @param {object} data - The jQuery data object from the parent table.
+		 * @fires FooTable.Filtering#"preinit.ft.filtering"
+		 */
+		preinit: function(data){
+			var self = this;
+			/**
+			 * The preinit.ft.filtering event is raised before the UI is created and provides the tables jQuery data object for additional options parsing.
+			 * Calling preventDefault on this event will disable the component.
+			 * @event FooTable.Filtering#"preinit.ft.filtering"
+			 * @param {jQuery.Event} e - The jQuery.Event object for the event.
+			 * @param {FooTable.Table} ft - The instance of the plugin raising the event.
+			 * @param {object} data - The jQuery data object of the table raising the event.
+			 */
+			this.ft.raise('preinit.ft.filtering').then(function(){
+				// first check if filtering is enabled via the class being applied
+				if (self.ft.$el.hasClass('footable-filtering'))
+					self.enabled = true;
+				// then check if the data-filtering-enabled attribute has been set
+				self.enabled = F.is.boolean(data.filtering)
+					? data.filtering
+					: self.enabled;
+
+				// if filtering is not enabled exit early as we don't need to do anything else
+				if (!self.enabled) return;
+
+				self.space = F.is.string(data.filterSpace)
+					? data.filteringSpace
+					: self.space;
+
+				self.min = F.is.number(data.filterMin)
+					? data.filteringMin
+					: self.min;
+
+				self.delay = F.is.number(data.filterDelay)
+					? data.filteringDelay
+					: self.delay;
+
+				self.placeholder = F.is.number(data.filterPlaceholder)
+					? data.filterPlaceholder
+					: self.placeholder;
+
+				self.filters = F.is.array(data.filters)
+					? self.ensure(data.filters)
+					: self.ensure(self.filters);
+
+				if (self.ft.$el.hasClass('footable-filtering-left'))
+					self.position = 'left';
+				if (self.ft.$el.hasClass('footable-filtering-center'))
+					self.position = 'center';
+				if (self.ft.$el.hasClass('footable-filtering-right'))
+					self.position = 'right';
+
+				self.position = F.is.string(data.filterPosition)
+					? data.filterPosition
+					: self.position;
+			},function(){
+				self.enabled = false;
+			});
+		},
+		/**
+		 * Initializes the filtering component for the plugin.
+		 * @instance
+		 * @protected
+		 * @fires FooTable.Filtering#"init.ft.filtering"
+		 */
+		init: function () {
+			var self = this;
+			/**
+			 * The init.ft.filtering event is raised before its UI is generated.
+			 * Calling preventDefault on this event will disable the component.
+			 * @event FooTable.Filtering#"init.ft.filtering"
+			 * @param {jQuery.Event} e - The jQuery.Event object for the event.
+			 * @param {FooTable.Table} ft - The instance of the plugin raising the event.
+			 */
+			this.ft.raise('init.ft.filtering').then(function(){
+				self.$create();
+			}, function(){
+				self.enabled = false;
+			});
+		},
+		/**
+		 * Destroys the filtering component removing any UI from the table.
+		 * @instance
+		 * @protected
+		 * @fires FooTable.Filtering#"destroy.ft.filtering"
+		 */
+		destroy: function () {
+			/**
+			 * The destroy.ft.filtering event is raised before its UI is removed.
+			 * Calling preventDefault on this event will prevent the component from being destroyed.
+			 * @event FooTable.Filtering#"destroy.ft.filtering"
+			 * @param {jQuery.Event} e - The jQuery.Event object for the event.
+			 * @param {FooTable.Table} ft - The instance of the plugin raising the event.
+			 */
+			var self = this;
+			this.ft.raise('destroy.ft.filtering').then(function(){
+				self.ft.$el.removeClass('footable-filtering')
+					.find('thead > tr.footable-filtering').remove();
+			});
+		},
+		/**
+		 * Creates the filtering UI from the current options setting the various jQuery properties of this component.
+		 * @instance
+		 * @protected
+		 * @this FooTable.Filtering
+		 */
+		$create: function () {
+			var self = this;
+			// generate the cell that actually contains all the UI.
+			var $form_grp = $('<div/>', {'class': 'form-group'})
+					.append($('<label/>', {'class': 'sr-only', text: 'Search'})),
+				$input_grp = $('<div/>', {'class': 'input-group'}).appendTo($form_grp),
+				$input_grp_btn = $('<div/>', {'class': 'input-group-btn'}),
+				$dropdown_toggle = $('<button/>', {type: 'button', 'class': 'btn btn-default dropdown-toggle'})
+					.on('click', { self: self }, self._onDropdownToggleClicked)
+					.append($('<span/>', {'class': 'caret'})),
+				position;
+
+			switch (self.position){
+				case 'left': position = 'footable-filtering-left'; break;
+				case 'center': position = 'footable-filtering-center'; break;
+				default: position = 'footable-filtering-right'; break;
+			}
+			self.ft.$el.addClass('footable-filtering').addClass(position);
+
+			// add it to a row and then populate it with the search input and column selector dropdown.
+			self.$row = $('<tr/>', {'class': 'footable-filtering'}).prependTo(self.ft.$el.children('thead'));
+			self.$cell = $('<th/>').attr('colspan', self.ft.columns.visibleColspan).appendTo(self.$row);
+			self.$form = $('<form/>', {'class': 'form-inline'}).append($form_grp).appendTo(self.$cell);
+
+			self.$input = $('<input/>', {type: 'text', 'class': 'form-control', placeholder: self.placeholder});
+
+			self.$button = $('<button/>', {type: 'button', 'class': 'btn btn-primary'})
+				.on('click', { self: self }, self._onSearchButtonClicked)
+				.append($('<span/>', {'class': 'fooicon fooicon-search'}));
+
+			self.$dropdown = $('<ul/>', {'class': 'dropdown-menu dropdown-menu-right'}).append(
+				F.arr.map(self.ft.columns.array, function (col) {
+					return col.filterable && col.visible ? $('<li/>').append(
+						$('<a/>', {'class': 'checkbox'}).append(
+							$('<label/>', {text: col.title}).prepend(
+								$('<input/>', {type: 'checkbox', checked: true}).data('__FooTableColumn__', col)
+							)
+						)
+					) : null;
+				})
+			);
+
+			if (self.delay > 0){
+				self.$input.on('keypress keyup', { self: self }, self._onSearchInputChanged);
+				self.$dropdown.on('click', 'input[type="checkbox"]', self._onSearchColumnClicked);
+			}
+
+			$input_grp_btn.append(self.$button, $dropdown_toggle, self.$dropdown);
+			$input_grp.append(self.$input, $input_grp_btn);
+		},
+		/**
+		 * Performs the filtering of rows before they are appended to the page.
+		 * @instance
+		 * @protected
+		 */
+		predraw: function(){
+			if (F.is.emptyArray(this.filters))
+				return;
+
+			var self = this;
+			self.ft.rows.array = $.grep(self.ft.rows.array, function(r){
+				return r.filtered(self.filters);
+			});
+		},
+		/**
+		 * As the rows are drawn by the {@link FooTable.Rows#draw} method this simply updates the colspan for the UI.
+		 * @instance
+		 * @protected
+		 */
+		draw: function(){
+			this.$cell.attr('colspan', this.ft.columns.visibleColspan);
+		},
+
+		/* PUBLIC */
+		/**
+		 * Adds or updates the filter using the supplied name, query and columns.
+		 * @param {string} name - The name for the filter.
+		 * @param {(string|FooTable.Query)} query - The query for the filter.
+		 * @param {(Array.<number>|Array.<string>|Array.<FooTable.Column>)} columns - The columns to apply the filter to.
+		 */
+		addFilter: function(name, query, columns){
+			var f = F.arr.first(this.filters, function(f){ return f.name == name; });
+			if (f instanceof F.Filter){
+				f.name = name;
+				f.query = query;
+				f.columns = columns;
+			} else {
+				this.filters.push({name: name, query: query, columns: columns});
+			}
+		},
+		/**
+		 * Removes the filter using the supplied name if it exists.
+		 * @param {string} name - The name of the filter to remove.
+		 */
+		removeFilter: function(name){
+			F.arr.remove(this.filters, function(f){ return f.name == name; });
+		},
+		/**
+		 * Creates a new search filter from the supplied parameters and applies it to the rows. If no parameters are supplied the current search input value
+		 * and selected columns are used to create or update the search filter. If there is no search input value then the search filter is removed.
+		 * @instance
+		 * @param {string} [query] - The query to filter the rows by.
+		 * @param {(Array.<string>|Array.<number>|Array.<FooTable.Column>)} [columns] - The columns to apply the filter to in each row.
+		 * @returns {jQuery.Promise}
+		 * @fires FooTable.Filtering#"before.ft.filtering"
+		 * @fires FooTable.Filtering#"after.ft.filtering"
+		 */
+		filter: function(query, columns){
+			if (F.is.undef(query)){
+				query = $.trim(this.$input.val() || '');
+			} else {
+				this.$input.val(query);
+			}
+			if (!F.is.emptyString(query)) {
+				this.addFilter('search', query, columns);
+			} else {
+				this.removeFilter('search');
+			}
+			this.$button.children('.fooicon').removeClass('fooicon-search').addClass('fooicon-remove');
+			return this._filter();
+		},
+		/**
+		 * Removes the current search filter.
+		 * @instance
+		 * @returns {jQuery.Promise}
+		 * @fires FooTable.Filtering#"before.ft.filtering"
+		 * @fires FooTable.Filtering#"after.ft.filtering"
+		 */
+		clear: function(){
+			this.$button.children('.fooicon').removeClass('fooicon-remove').addClass('fooicon-search');
+			this.$input.val(null);
+			this.removeFilter('search');
+			return this._filter();
+		},
+		/**
+		 * Gets an array of {@link FooTable.Column} to apply the search filter to. This also doubles as the default columns for filters which do not specify any columns.
+		 * @instance
+		 * @returns {Array.<FooTable.Column>}
+		 */
+		columns: function(){
+			if (F.is.jq(this.$dropdown)){
+				// if we have a dropdown containing the column names get the selected columns from there
+				return this.$dropdown.find('input:checked').map(function(){
+					return $(this).data('__FooTableColumn__');
+				}).get();
+			} else {
+				// otherwise find all columns that are set to be filterable.
+				return this.ft.columns.get(function(c){ return c.filterable; });
+			}
+		},
+		/**
+		 * Takes an array of plain objects containing the filter values or actual {@link FooTable.Filter} objects and ensures that an array of only {@link FooTable.Filter} is returned.
+		 * If supplied a plain object that object must contain a name, query and columns properties which are used to create a new {@link FooTable.Filter}.
+		 * @instance
+		 * @param {({name: string, query: (string|FooTable.Query), columns: (Array.<string>|Array.<number>|Array.<FooTable.Column>)}|Array.<FooTable.Filter>)} filters - The array of filters to check.
+		 * @returns {Array.<FooTable.Filter>}
+		 */
+		ensure: function(filters){
+			var self = this, parsed = [], filterable = self.columns();
+			if (!F.is.emptyArray(filters)){
+				F.arr.each(filters, function(f){
+					if (F.is.object(f) && (!F.is.emptyString(f.query) || f.query instanceof F.Query)) {
+						f.name = F.is.emptyString(f.name) ? 'anon' : f.name;
+						f.columns = F.is.emptyArray(f.columns) ? filterable : self.ft.columns.ensure(f.columns);
+						parsed.push(f instanceof F.Filter ? f : new F.Filter(f.name, f.query, f.columns, self.space));
+					}
+				});
+			}
+			return parsed;
+		},
+
+		/* PRIVATE */
+		/**
+		 * Performs the required steps to handle filtering including the raising of the {@link FooTable.Filtering#"before.ft.filtering"} and {@link FooTable.Filtering#"after.ft.filtering"} events.
+		 * @instance
+		 * @private
+		 * @returns {jQuery.Promise}
+		 * @fires FooTable.Filtering#"before.ft.filtering"
+		 * @fires FooTable.Filtering#"after.ft.filtering"
+		 */
+		_filter: function(){
+			var self = this;
+			self.filters = self.ensure(self.filters);
+			/**
+			 * The before.ft.filtering event is raised before a filter is applied and allows listeners to modify the filter or cancel it completely by calling preventDefault on the jQuery.Event object.
+			 * @event FooTable.Filtering#"before.ft.filtering"
+			 * @param {jQuery.Event} e - The jQuery.Event object for the event.
+			 * @param {FooTable.Table} ft - The instance of the plugin raising the event.
+			 * @param {Array.<FooTable.Filter>} filters - The filters that are about to be applied.
+			 */
+			return self.ft.raise('before.ft.filtering', [self.filters]).then(function(){
+				self.filters = self.ensure(self.filters);
+				return self.ft.draw().then(function(){
+					/**
+					 * The after.ft.filtering event is raised after a filter has been applied.
+					 * @event FooTable.Filtering#"after.ft.filtering"
+					 * @param {jQuery.Event} e - The jQuery.Event object for the event.
+					 * @param {FooTable.Table} ft - The instance of the plugin raising the event.
+					 * @param {FooTable.Filter} filter - The filters that were applied.
+					 */
+					self.ft.raise('after.ft.filtering', [self.filters]);
+				});
+			});
+		},
+		/**
+		 * Handles the change event for the {@link FooTable.Filtering#$input}.
+		 * @instance
+		 * @private
+		 * @param {jQuery.Event} e - The event object for the event.
+		 */
+		_onSearchInputChanged: function (e) {
+			var self = e.data.self;
+			var alpha = e.type == 'keypress' && !F.is.emptyString(String.fromCharCode(e.charCode)),
+				ctrl = e.type == 'keyup' && (e.which == 8 || e.which == 46); // backspace & delete
+
+			// if alphanumeric characters or specific control characters
+			if(alpha || ctrl) {
+				if (self._filterTimeout != null) clearTimeout(self._filterTimeout);
+				self._filterTimeout = setTimeout(function(){
+					self._filterTimeout = null;
+					self.filter();
+				}, self.delay);
+			}
+		},
+		/**
+		 * Handles the click event for the {@link FooTable.Filtering#$button}.
+		 * @instance
+		 * @private
+		 * @param {jQuery.Event} e - The event object for the event.
+		 */
+		_onSearchButtonClicked: function (e) {
+			e.preventDefault();
+			var self = e.data.self;
+			if (self._filterTimeout != null) clearTimeout(self._filterTimeout);
+			var $icon = self.$button.children('.fooicon');
+			if ($icon.hasClass('fooicon-remove')) self.clear();
+			else self.filter();
+		},
+		/**
+		 * Handles the click event for the column checkboxes in the {@link FooTable.Filtering#$dropdown}.
+		 * @instance
+		 * @private
+		 * @param {jQuery.Event} e - The event object for the event.
+		 */
+		_onSearchColumnClicked: function (e) {
+			var self = e.data.self;
+			if (self._filterTimeout != null) clearTimeout(self._filterTimeout);
+			self._filterTimeout = setTimeout(function(){
+				self._filterTimeout = null;
+				var $icon = self.$button.children('.fooicon');
+				if ($icon.hasClass('fooicon-remove')){
+					$icon.removeClass('fooicon-remove').addClass('fooicon-search');
+					self.filter();
+				}
+			}, self.delay);
+		},
+		/**
+		 * Handles the click event for the {@link FooTable.Filtering#$dropdown} toggle.
+		 * @instance
+		 * @private
+		 * @param {jQuery.Event} e - The event object for the event.
+		 */
+		_onDropdownToggleClicked: function (e) {
+			e.preventDefault();
+			e.stopPropagation();
+			var self = e.data.self;
+			self.$dropdown.parent().toggleClass('open');
+			if (self.$dropdown.parent().hasClass('open')) $(document).on('click.footable', { self: self }, self._onDocumentClicked);
+			else $(document).off('click.footable', self._onDocumentClicked);
+		},
+		/**
+		 * Checks all click events when the dropdown is visible and closes the menu if the target is not the dropdown.
+		 * @instance
+		 * @private
+		 * @param {jQuery.Event} e - The event object for the event.
+		 */
+		_onDocumentClicked: function(e){
+			if ($(e.target).closest('.dropdown-menu').length == 0){
+				e.preventDefault();
+				var self = e.data.self;
+				self.$dropdown.parent().removeClass('open');
+				$(document).off('click.footable', self._onDocumentClicked);
+			}
+		}
+	});
+
+	F.components.core.register('filtering', F.Filtering, 10);
+
+})(jQuery, FooTable);
+(function(F){
+	F.Query = F.Class.extend(/** @lends FooTable.Query */{
+		/**
+		 * The query object is used to parse and test the filtering component's queries
+		 * @constructs
+		 * @extends FooTable.Class
+		 * @param {string} query - The string value of the query.
+		 * @param {string} [space="AND"] - How the query treats whitespace.
+		 * @returns {FooTable.Query}
+		 */
+		construct: function(query, space){
+			/* PRIVATE */
+			/**
+			 * Holds the previous value of the query and is used internally in the {@link FooTable.Query#val} method.
+			 * @type {string}
+			 * @private
+			 */
+			this._original = null;
+			/**
+			 * Holds the value for the query. Access to this variable is provided through the {@link FooTable.Query#val} method.
+			 * @type {string}
+			 * @private
+			 */
+			this._value = null;
+			/* PUBLIC */
+			/**
+			 * A string specifying how the query treats whitespace. Can be either "OR" or "AND".
+			 * @type {string}
+			 */
+			this.space = F.is.string(space) && (space == 'OR' || space == 'AND') ? space : 'AND';
+			/**
+			 * The left side of the query if one exists. OR takes precedence over AND.
+			 * @type {FooTable.Query}
+			 * @example <caption>The below shows what is meant by the "left" side of a query</caption>
+			 * query = "Dave AND Mary" - "Dave" is the left side of the query.
+			 * query = "Dave AND Mary OR John" - "Dave and Mary" is the left side of the query.
+			 */
+			this.left = null;
+			/**
+			 * The right side of the query if one exists. OR takes precedence over AND.
+			 * @type {FooTable.Query}
+			 * @example <caption>The below shows what is meant by the "right" side of a query</caption>
+			 * query = "Dave AND Mary" - "Mary" is the right side of the query.
+			 * query = "Dave AND Mary OR John" - "John" is the right side of the query.
+			 */
+			this.right = null;
+			/**
+			 * The parsed parts of the query. This contains the information used to actually perform a match against a string.
+			 * @type {Array}
+			 */
+			this.parts = [];
+			/**
+			 * The type of operand to apply to the results of the individual parts of the query.
+			 * @type {string}
+			 */
+			this.operator = null;
+			this.val(query);
+		},
+		/**
+		 * Gets or sets the value for the query. During set the value is parsed setting all properties as required.
+		 * @param {string} [value] - If supplied the value to set for this query.
+		 * @returns {(string|undefined)}
+		 */
+		val: function(value){
+			// get
+			if (F.is.emptyString(value)) return this._value;
+
+			// set
+			if (F.is.emptyString(this._original)) this._original = value;
+			else if (this._original == value) return;
+
+			this._value = value;
+			this._parse();
+		},
+		/**
+		 * Tests the supplied string against the query.
+		 * @param {string} str - The string to test.
+		 * @returns {boolean}
+		 */
+		match: function(str){
+			if (F.is.emptyString(this.operator) || this.operator === 'OR')
+				return this._left(str, false) || this._match(str, false) || this._right(str, false);
+			if (this.operator === 'AND')
+				return this._left(str, true) && this._match(str, true) && this._right(str, true);
+		},
+		/**
+		 * Matches this queries parts array against the supplied string.
+		 * @param {string} str - The string to test.
+		 * @param {boolean} def - The default value to return based on the operand.
+		 * @returns {boolean}
+		 * @private
+		 */
+		_match: function(str, def){
+			var self = this, result = false;
+			if (F.is.emptyArray(self.parts) && self.left instanceof F.Query) return def;
+			if (F.is.emptyArray(self.parts)) return result;
+			if (self.space === 'OR'){
+				// with OR we give the str every part to test and if any match it is a success, we do exit early if a negated match occurs
+				F.arr.each(self.parts, function(p){
+					var match = F.str.contains(str, p.query, true);
+					if (match && !p.negate) result = true;
+					if (match && p.negate) {
+						result = false;
+						return result;
+					}
+				});
+			} else {
+				// otherwise with AND we check until the first failure and then exit
+				result = true;
+				F.arr.each(self.parts, function(p){
+					var match = F.str.contains(str, p.query, true);
+					if ((!match && !p.negate) || (match && p.negate)) result = false;
+					return result;
+				});
+			}
+			return result;
+		},
+		/**
+		 * Matches the left side of the query if one exists with the supplied string.
+		 * @param {string} str - The string to test.
+		 * @param {boolean} def - The default value to return based on the operand.
+		 * @returns {boolean}
+		 * @private
+		 */
+		_left: function(str, def){
+			return (this.left instanceof F.Query) ? this.left.match(str) : def;
+		},
+		/**
+		 * Matches the right side of the query if one exists with the supplied string.
+		 * @param {string} str - The string to test.
+		 * @param {boolean} def - The default value to return based on the operand.
+		 * @returns {boolean}
+		 * @private
+		 */
+		_right: function(str, def){
+			return (this.right instanceof F.Query) ? this.right.match(str) : def;
+		},
+		/**
+		 * Parses the private {@link FooTable.Query#_value} property and populates the object.
+		 * @private
+		 */
+		_parse: function(){
+			if (F.is.emptyString(this._value)) return;
+			// OR takes precedence so test for it first
+			if (/\sOR\s/.test(this._value)){
+				// we have an OR so split the value on the first occurrence of OR to get the left and right sides of the statement
+				this.operator = 'OR';
+				var or = this._value.split(/(?:\sOR\s)(.*)?/);
+				this.left = new F.Query(or[0], this.space);
+				this.right = new F.Query(or[1], this.space);
+			} else if (/\sAND\s/.test(this._value)) {
+				// there are no more OR's so start with AND
+				this.operator = 'AND';
+				var and = this._value.split(/(?:\sAND\s)(.*)?/);
+				this.left = new F.Query(and[0], this.space);
+				this.right = new F.Query(and[1], this.space);
+			} else {
+				// we have no more statements to parse so set the parts array by parsing each part of the remaining query
+				this.parts = F.arr.map(this._value.match(/(?:[^\s"]+|"[^"]*")+/g), this._part);
+			}
+		},
+		/**
+		 * Parses a single part of a query into an object to use during matching.
+		 * @param {string} str - The string representation of the part.
+		 * @returns {{query: string, negate: boolean, phrase: boolean, exact: boolean}}
+		 * @private
+		 */
+		_part: function(str){
+			var p = {
+				query: str,
+				negate: false,
+				phrase: false,
+				exact: false
+			};
+			// support for NEGATE operand - (minus sign). Remove this first so we can get onto phrase checking
+			if (F.str.startsWith(p.query, '-')){
+				p.query = F.str.from(p.query, '-');
+				p.negate = true;
+			}
+			// support for PHRASES (exact matches)
+			if (/^"(.*?)"$/.test(p.query)){ // if surrounded in quotes strip them and nothing else
+				p.query = p.query.replace(/^"(.*?)"$/, '$1');
+				p.phrase = true;
+				p.exact = true;
+			} else if (/(?:\w)+?([-_\+\.])(?:\w)+?/.test(p.query)) { // otherwise replace supported phrase connectors (-_+.) with spaces
+				p.query = p.query.replace(/(?:\w)+?([-_\+\.])(?:\w)+?/g, function(match, p1){
+					return match.replace(p1, ' ');
+				});
+				p.phrase = true;
+			}
+			return p;
+		}
+	});
+
+})(FooTable);
+(function(F){
+
+	/**
+	 * The value used by the filtering component during filter operations. Must be a string and can be set using the data-filter-value attribute on the cell itself.
+	 * If this is not supplied it is set to the result of the toString method called on the value for the cell. Added by the {@link FooTable.Filtering} component.
+	 * @type {string}
+	 * @default null
+	 */
+	F.Cell.prototype.filterValue = null;
+
+	// this is used to define the filtering specific properties on cell creation
+	F.Cell.prototype.__filtering_define__ = function(valueOrElement){
+		this.filterValue = this.column.filterValue.call(this.column, valueOrElement);
+	};
+
+	// this is used to update the filterValue property whenever the cell value is changed
+	F.Cell.prototype.__filtering_val__ = function(value){
+		if (F.is.defined(value)){
+			// set only
+			this.filterValue = this.column.filterValue.call(this.column, value);
+		}
+	};
+
+	// overrides the public define method and replaces it with our own
+	F.Cell.extend('define', function(valueOrElement){
+		this._super(valueOrElement);
+		this.__filtering_define__(valueOrElement);
+	});
+	// overrides the public val method and replaces it with our own
+	F.Cell.extend('val', function(value){
+		var val = this._super(value);
+		this.__filtering_val__(value);
+		return val;
+	});
+})(FooTable);
+(function($, F){
+	/**
+	 * Whether or not the column can be used during filtering. Added by the {@link FooTable.Filtering} component.
+	 * @type {boolean}
+	 * @default true
+	 */
+	F.Column.prototype.filterable = true;
+
+	/**
+	 * This is supplied either the cell value or jQuery object to parse. A string value must be returned from this method and will be used during filtering operations.
+	 * @param {(*|jQuery)} valueOrElement - The value or jQuery cell object.
+	 * @returns {string}
+	 * @this FooTable.Column
+	 */
+	F.Column.prototype.filterValue = function(valueOrElement){
+		// if we have an element or a jQuery object use jQuery to get the value
+		if (F.is.element(valueOrElement) || F.is.jq(valueOrElement)) return $(valueOrElement).data('filterValue') || $(valueOrElement).text();
+		// if options are supplied with the value
+		if (F.is.hash(valueOrElement) && F.is.hash(valueOrElement.options)){
+			if (F.is.string(valueOrElement.options.filterValue)) return valueOrElement.options.filterValue;
+			if (F.is.defined(valueOrElement.value)) valueOrElement = valueOrElement.value;
+		}
+		if (F.is.defined(valueOrElement) && valueOrElement != null) return valueOrElement+''; // use the native toString of the value
+		return ''; // otherwise we have no value so return an empty string
+	};
+
+	// this is used to define the filtering specific properties on column creation
+	F.Column.prototype.__filtering_define__ = function(definition){
+		this.filterable = F.is.boolean(definition.filterable) ? definition.filterable : this.filterable;
+	};
+
+	// overrides the public define method and replaces it with our own
+	F.Column.extend('define', function(definition){
+		this._super(definition); // call the base so we don't have to redefine any previously set properties
+		this.__filtering_define__(definition); // then call our own
+	});
+})(jQuery, FooTable);
+(function(F){
+	/**
+	 * An object containing the filtering options for the plugin. Added by the {@link FooTable.Filtering} component.
+	 * @type {object}
+	 * @prop {boolean} enabled=false - Whether or not to allow filtering on the table.
+	 * @prop {({name: string, query: (string|FooTable.Query), columns: (Array.<string>|Array.<number>|Array.<FooTable.Column>)}|Array.<FooTable.Filter>)} filters - The filters to apply to the current {@link FooTable.Rows#array}.
+	 * @prop {number} delay=1200 - The delay in milliseconds before the query is auto applied after a change (any value equal to or less than zero will disable this).
+	 * @prop {number} min=3 - The minimum number of characters allowed in the search input before it is auto applied.
+	 * @prop {string} space="AND" - Specifies how whitespace in a filter query is handled.
+	 * @prop {string} placeholder="Search" - The string used as the placeholder for the search input.
+	 * @prop {string} position="right" - The string used to specify the alignment of the search input.
+	 */
+	F.Defaults.prototype.filtering = {
+		enabled: false,
+		filters: [],
+		delay: 1200,
+		min: 3,
+		space: 'AND',
+		placeholder: 'Search',
+		position: 'right'
+	};
+})(FooTable);
+(function(F){
+	/**
+	 * Checks if the row is filtered using the supplied filters.
+	 * @this FooTable.Row
+	 * @param {Array.<FooTable.Filter>} filters - The filters to apply.
+	 * @returns {boolean}
+	 */
+	F.Row.prototype.filtered = function(filters){
+		var result = true, self = this;
+		F.arr.each(filters, function(f){
+			if ((result = f.matchRow(self)) == false) return false;
+		});
+		return result;
+	};
+})(FooTable);
+(function(F){
+	/**
+	 * Filter the table using the supplied query and columns. Added by the {@link FooTable.Filtering} component.
+	 * @instance
+	 * @param {string} query - The query to filter the rows by.
+	 * @param {(Array.<string>|Array.<number>|Array.<FooTable.Column>)} [columns] - The columns to apply the filter to in each row.
+	 * @returns {jQuery.Promise}
+	 * @fires FooTable.Filtering#before.ft.filtering
+	 * @fires FooTable.Filtering#after.ft.filtering
+	 * @see FooTable.Filtering#filter
+	 */
+	F.Table.prototype.applyFilter = function(query, columns){
+		return this.use(F.Filtering).filter(query, columns);
+	};
+
+	/**
+	 * Clear the current filter from the table. Added by the {@link FooTable.Filtering} component.
+	 * @instance
+	 * @returns {jQuery.Promise}
+	 * @fires FooTable.Filtering#before.ft.filtering
+	 * @fires FooTable.Filtering#after.ft.filtering
+	 * @see FooTable.Filtering#clear
+	 */
+	F.Table.prototype.clearFilter = function(){
+		return this.use(F.Filtering).clear();
+	};
+})(FooTable);
+(function($, F){
+
+	F.Sorter = F.Class.extend(/** @lends FooTable.Sorter */{
+		/**
+		 * The sorter object contains the column and direction to sort by.
+		 * @constructs
+		 * @extends FooTable.Class
+		 * @param {FooTable.Column} column - The column to sort.
+		 * @param {string} direction - The direction to sort by.
+		 * @returns {FooTable.Sorter}
+		 */
+		construct: function(column, direction){
+			/**
+			 * The column to sort.
+			 * @type {FooTable.Column}
+			 */
+			this.column = column;
+			/**
+			 * The direction to sort by.
+			 * @type {string}
+			 */
+			this.direction = direction;
+		}
+	});
+
+})(jQuery, FooTable);
+(function ($, F) {
+	F.Sorting = F.Component.extend(/** @lends FooTable.Sorting */{
+		/**
+		 * The sorting component adds a small sort button to specified column headers allowing users to sort those columns in the table.
+		 * @constructs
+		 * @extends FooTable.Component
+		 * @param {FooTable.Table} table - The parent {@link FooTable.Table} object for the component.
+		 * @returns {FooTable.Sorting}
+		 */
+		construct: function (table) {
+			// call the constructor of the base class
+			this._super(table, table.o.sorting.enabled);
+
+			/* PROTECTED */
+			/**
+			 * This provides a shortcut to the {@link FooTable.Table#options}.[sorting]{@link FooTable.Defaults#sorting} object.
+			 * @instance
+			 * @protected
+			 * @type {object}
+			 */
+			this.o = table.o.sorting;
+			/**
+			 * The current sorted column.
+			 * @instance
+			 * @type {FooTable.Column}
+			 */
+			this.column = null;
+
+			/* PRIVATE */
+			/**
+			 * Sets a flag indicating whether or not the sorting has changed. When set to true the {@link FooTable.Sorting#sorting_changing} and {@link FooTable.Sorting#sorting_changed} events
+			 * will be raised during the drawing operation.
+			 * @private
+			 * @type {boolean}
+			 */
+			this._changed = false;
+		},
+
+		/* PROTECTED */
+		/**
+		 * Checks the supplied data and options for the sorting component.
+		 * @instance
+		 * @protected
+		 * @param {object} data - The jQuery data object from the parent table.
+		 * @fires FooTable.Sorting#"preinit.ft.sorting"
+		 * @this FooTable.Sorting
+		 */
+		preinit: function(data){
+			var self = this;
+			/**
+			 * The preinit.ft.sorting event is raised before the UI is created and provides the tables jQuery data object for additional options parsing.
+			 * Calling preventDefault on this event will disable the component.
+			 * @event FooTable.Sorting#"preinit.ft.sorting"
+			 * @param {jQuery.Event} e - The jQuery.Event object for the event.
+			 * @param {FooTable.Table} ft - The instance of the plugin raising the event.
+			 * @param {object} data - The jQuery data object of the table raising the event.
+			 */
+			this.ft.raise('preinit.ft.sorting', [data]).then(function(){
+				if (self.ft.$el.hasClass('footable-sorting'))
+					self.enabled = true;
+				self.enabled = F.is.boolean(data.sorting)
+					? data.sorting
+					: self.enabled;
+				if (!self.enabled) return;
+				self.column = F.arr.first(self.ft.columns.array, function(col){ return col.sorted; });
+			}, function(){
+				self.enabled = false;
+			});
+		},
+		/**
+		 * Initializes the sorting component for the plugin using the supplied table and options.
+		 * @instance
+		 * @protected
+		 * @fires FooTable.Sorting#"init.ft.sorting"
+		 * @this FooTable.Sorting
+		 */
+		init: function () {
+			/**
+			 * The init.ft.sorting event is raised before its UI is generated.
+			 * Calling preventDefault on this event will disable the component.
+			 * @event FooTable.Sorting#"init.ft.sorting"
+			 * @param {jQuery.Event} e - The jQuery.Event object for the event.
+			 * @param {FooTable.Table} ft - The instance of the plugin raising the event.
+			 */
+			var self = this;
+			this.ft.raise('init.ft.sorting').then(function(){
+				F.arr.each(self.ft.columns.array, function(col){
+					if (col.sortable){
+						col.$el.addClass('footable-sortable').append($('<span/>', {'class': 'fooicon fooicon-sort'}));
+					}
+				});
+				self.ft.$el.on('click.footable', '.footable-sortable', { self: self }, self._onSortClicked);
+			}, function(){
+				self.enabled = false;
+			});
+		},
+		/**
+		 * Destroys the sorting component removing any UI generated from the table.
+		 * @instance
+		 * @protected
+		 * @fires FooTable.Sorting#"destroy.ft.sorting"
+		 */
+		destroy: function () {
+			/**
+			 * The destroy.ft.sorting event is raised before its UI is removed.
+			 * Calling preventDefault on this event will prevent the component from being destroyed.
+			 * @event FooTable.Sorting#"destroy.ft.sorting"
+			 * @param {jQuery.Event} e - The jQuery.Event object for the event.
+			 * @param {FooTable.Table} ft - The instance of the plugin raising the event.
+			 */
+			var self = this;
+			this.ft.raise('destroy.ft.paging').then(function(){
+				self.ft.$el.off('click.footable', '.footable-sortable', self._onSortClicked);
+				self.ft.$el.children('thead').children('tr.footable-header')
+					.children('.footable-sortable').removeClass('footable-sortable')
+					.find('span.fooicon').remove();
+			});
+		},
+		/**
+		 * Performs the actual sorting against the {@link FooTable.Rows#current} array.
+		 * @instance
+		 * @protected
+		 */
+		predraw: function () {
+			if (!this.column) return;
+			var self = this, col = self.column;
+			self.ft.rows.array.sort(function (a, b) {
+				return col.direction == 'ASC'
+					? col.sorter(a.cells[col.index].value, b.cells[col.index].value)
+					: col.sorter(b.cells[col.index].value, a.cells[col.index].value);
+			});
+		},
+		/**
+		 * Updates the sorting UI setting the state of the sort buttons.
+		 * @instance
+		 * @protected
+		 */
+		draw: function () {
+			if (!this.column) return;
+			var self = this,
+				$sortable = self.ft.$el.find('thead > tr > .footable-sortable'),
+				$active = self.column.$el;
+
+			$sortable.removeClass('footable-asc footable-desc').children('.fooicon').removeClass('fooicon-sort fooicon-sort-asc fooicon-sort-desc');
+			$sortable.not($active).children('.fooicon').addClass('fooicon-sort');
+			$active.addClass(self.column.direction == 'ASC' ? 'footable-asc' : 'footable-desc')
+				.children('.fooicon').addClass(self.column.direction == 'ASC' ? 'fooicon-sort-asc' : 'fooicon-sort-desc');
+		},
+
+		/* PUBLIC */
+		/**
+		 * Sets the sorting options and calls the {@link FooTable.Table#draw} method to perform the actual sorting.
+		 * @instance
+		 * @param {(string|number|FooTable.Column)} column - The column name, index or the actual {@link FooTable.Column} object to sort by.
+		 * @param {string} [direction="ASC"] - The direction to sort by, either ASC or DESC.
+		 * @returns {jQuery.Promise}
+		 * @fires FooTable.Sorting#"before.ft.sorting"
+		 * @fires FooTable.Sorting#"after.ft.sorting"
+		 */
+		sort: function(column, direction){
+			return this._sort(column, direction);
+		},
+
+		/* PRIVATE */
+		/**
+		 * Performs the required steps to handle sorting including the raising of the {@link FooTable.Sorting#"before.ft.sorting"} and {@link FooTable.Sorting#"after.ft.sorting"} events.
+		 * @instance
+		 * @private
+		 * @param {(string|number|FooTable.Column)} column - The column name, index or the actual {@link FooTable.Column} object to sort by.
+		 * @param {string} [direction="ASC"] - The direction to sort by, either ASC or DESC.
+		 * @returns {jQuery.Promise}
+		 * @fires FooTable.Sorting#"before.ft.sorting"
+		 * @fires FooTable.Sorting#"after.ft.sorting"
+		 */
+		_sort: function(column, direction){
+			var self = this;
+			var sorter = new F.Sorter(self.ft.columns.get(column), F.Sorting.dir(direction));
+			/**
+			 * The before.ft.sorting event is raised before a sort is applied and allows listeners to modify the sorter or cancel it completely by calling preventDefault on the jQuery.Event object.
+			 * @event FooTable.Sorting#"before.ft.sorting"
+			 * @param {jQuery.Event} e - The jQuery.Event object for the event.
+			 * @param {FooTable.Table} ft - The instance of the plugin raising the event.
+			 * @param {FooTable.Sorter} sorter - The sorter that is about to be applied.
+			 */
+			return self.ft.raise('before.ft.sorting', [sorter]).then(function(){
+				F.arr.each(self.ft.columns.array, function(col){
+					if (col != self.column) col.direction = null;
+				});
+				self.column = self.ft.columns.get(sorter.column);
+				if (self.column) self.column.direction = F.Sorting.dir(sorter.direction);
+				return self.ft.draw().then(function(){
+					/**
+					 * The after.ft.sorting event is raised after a sorter has been applied.
+					 * @event FooTable.Sorting#"after.ft.sorting"
+					 * @param {jQuery.Event} e - The jQuery.Event object for the event.
+					 * @param {FooTable.Table} ft - The instance of the plugin raising the event.
+					 * @param {FooTable.Sorter} sorter - The sorter that has been applied.
+					 */
+					self.ft.raise('after.ft.sorting', [sorter]);
+				});
+			});
+		},
+		/**
+		 * Handles the sort button clicked event.
+		 * @instance
+		 * @private
+		 * @param {jQuery.Event} e - The event object for the event.
+		 */
+		_onSortClicked: function (e) {
+			e.preventDefault();
+			var self = e.data.self, $header = $(this).closest('th,td'),
+				direction = $header.is('.footable-asc, .footable-desc')
+					? ($header.hasClass('footable-desc') ? 'ASC' : 'DESC')
+					: 'ASC';
+			self._sort($header.index(), direction);
+		}
+	});
+
+	/**
+	 * Checks the supplied string is a valid direction and if not returns ASC as default.
+	 * @static
+	 * @protected
+	 * @param {string} str - The string to check.
+	 */
+	F.Sorting.dir = function(str){
+		return F.is.string(str) && (str == 'ASC' || str == 'DESC') ? str : 'ASC';
+	};
+
+	F.components.core.register('sorting', F.Sorting, 5);
+
+})(jQuery, FooTable);
+(function($, F){
+	/**
+	 * The direction to sort if the {@link FooTable.Column#sorted} property is set to true. Can be "ASC", "DESC" or NULL. Added by the {@link FooTable.Sorting} component.
+	 * @type {string}
+	 * @default null
+	 */
+	F.Column.prototype.direction = null;
+	/**
+	 * Whether or not the column can be sorted. Added by the {@link FooTable.Sorting} component.
+	 * @type {boolean}
+	 * @default true
+	 */
+	F.Column.prototype.sortable = true;
+	/**
+	 * Whether or not the column is sorted. Added by the {@link FooTable.Sorting} component.
+	 * @type {boolean}
+	 * @default false
+	 */
+	F.Column.prototype.sorted = false;
+
+	/**
+	 * This is supplied two values from the column for a comparison to be made and the result returned. Added by the {@link FooTable.Sorting} component.
+	 * @param {*} a - The first value to be compared.
+	 * @param {*} b - The second value to compare to the first.
+	 * @returns {number}
+	 * @example <caption>This example shows using pseudo code what a sort function would look like.</caption>
+	 * "sorter": function(a, b){
+	 * 	if (a is less than b by some ordering criterion) {
+	 * 		return -1;
+	 * 	}
+	 * 	if (a is greater than b by the ordering criterion) {
+	 * 		return 1;
+	 * 	}
+	 * 	// a must be equal to b
+	 * 	return 0;
+	 * }
+	 */
+	F.Column.prototype.sorter = function(a, b){
+		if (typeof a === 'string') a = a.toLowerCase();
+		if (typeof b === 'string') b = b.toLowerCase();
+		if (a === b) return 0;
+		if (a < b) return -1;
+		return 1;
+	};
+
+	// this is used to define the sorting specific properties on column creation
+	F.Column.prototype.__sorting_define__ = function(definition){
+		this.sorter = F.checkFnValue(this, definition.sorter, this.sorter);
+		this.direction = F.is.type(definition.direction, 'string') ? F.Sorting.dir(definition.direction) : null;
+		this.sortable = F.is.boolean(definition.sortable) ? definition.sortable : true;
+		this.sorted = F.is.boolean(definition.sorted) ? definition.sorted : false;
+	};
+
+	// overrides the public define method and replaces it with our own
+	F.Column.extend('define', function(definition){
+		this._super(definition);
+		this.__sorting_define__(definition);
+	});
+
+})(jQuery, FooTable);
+(function(F){
+	/**
+	 * An object containing the sorting options for the plugin. Added by the {@link FooTable.Sorting} component.
+	 * @type {object}
+	 * @prop {boolean} enabled=false - Whether or not to allow sorting on the table.
+	 */
+	F.Defaults.prototype.sorting = {
+		enabled: false
+	};
+})(FooTable);
+(function(F){
+	/**
+	 * Sort the table using the specified column and direction. Added by the {@link FooTable.Sorting} component.
+	 * @instance
+	 * @param {(string|number|FooTable.Column)} column - The column name, index or the actual {@link FooTable.Column} object to sort by.
+	 * @param {string} [direction="ASC"] - The direction to sort by, either ASC or DESC.
+	 * @returns {jQuery.Promise}
+	 * @fires FooTable.Sorting#"change.ft.sorting"
+	 * @fires FooTable.Sorting#"changed.ft.sorting"
+	 * @see FooTable.Sorting#sort
+	 */
+	F.Table.prototype.sort = function(column, direction){
+		return this.use(F.Sorting).sort(column, direction);
+	};
+})(FooTable);
+(function($, F){
+
+	F.Pager = F.Class.extend(/** @lends FooTable.Pager */{
+		/**
+		 * The pager object contains the page number and direction to page to.
+		 * @constructs
+		 * @extends FooTable.Class
+		 * @param {number} total - The total number of pages available.
+		 * @param {number} current - The current page number.
+		 * @param {number} size - The number of rows per page.
+		 * @param {number} page - The page number to goto.
+		 * @param {boolean} forward - A boolean indicating the direction of paging, TRUE = forward, FALSE = back.
+		 * @returns {FooTable.Pager}
+		 */
+		construct: function(total, current, size, page, forward){
+			/**
+			 * The total number of pages available.
+			 * @type {number}
+			 */
+			this.total = total;
+			/**
+			 * The current page number.
+			 * @type {number}
+			 */
+			this.current = current;
+			/**
+			 * The number of rows per page.
+			 * @type {number}
+			 */
+			this.size = size;
+			/**
+			 * The page number to goto.
+			 * @type {number}
+			 */
+			this.page = page;
+			/**
+			 * A boolean indicating the direction of paging, TRUE = forward, FALSE = back.
+			 * @type {boolean}
+			 */
+			this.forward = forward;
+		}
+	});
+
+})(jQuery, FooTable);
+(function($, F){
+	F.Paging = F.Component.extend(/** @lends FooTable.Paging */{
+		/**
+		 * The paging component adds a pagination control to the table allowing users to navigate table rows via pages.
+		 * @constructs
+		 * @extends FooTable.Component
+		 * @param {FooTable.Table} table - The parent {@link FooTable.Table} object for the component.
+		 * @returns {FooTable.Filtering}
+		 */
+		construct: function(table){
+			// call the base constructor
+			this._super(table, table.o.paging.enabled);
+
+			/* PROTECTED */
+			/**
+			 * An object containing the strings used by the paging buttons.
+			 * @type {{ first: string, prev: string, next: string, last: string }}
+			 */
+			this.strings = table.o.paging.strings;
+
+			/* PUBLIC */
+			/**
+			 * The current page number to display.
+			 * @instance
+			 * @type {number}
+			 */
+			this.current = table.o.paging.current;
+			/**
+			 * The number of rows to display per page.
+			 * @instance
+			 * @type {number}
+			 */
+			this.size = table.o.paging.size;
+			/**
+			 * The maximum number of page links to display at once.
+			 * @type {number}
+			 */
+			this.limit = table.o.paging.limit;
+			/**
+			 * The position of the pagination control within the paging rows cell.
+			 * @type {string}
+			 */
+			this.position = table.o.paging.position;
+			/**
+			 * The format string used to generate the text displayed under the pagination control.
+			 * @type {string}
+			 */
+			this.countFormat = table.o.paging.countFormat;
+			/**
+			 * The total number of pages.
+			 * @instance
+			 * @type {number}
+			 */
+			this.total = -1;
+			/**
+			 * The jQuery row object that contains all the paging specific elements.
+			 * @instance
+			 * @type {jQuery}
+			 */
+			this.$row = null;
+			/**
+			 * The jQuery cell object that contains the pagination control and total count.
+			 * @instance
+			 * @type {jQuery}
+			 */
+			this.$cell = null;
+			/**
+			 * The jQuery object that contains the links for the pagination control.
+			 * @type {jQuery}
+			 */
+			this.$pagination = null;
+			/**
+			 * The jQuery object that contains the row count.
+			 * @type {jQuery}
+			 */
+			this.$count = null;
+
+			/* PRIVATE */
+			/**
+			 * A number indicating the previous page displayed.
+			 * @private
+			 * @type {number}
+			 */
+			this._previous = 1;
+
+			/**
+			 * Used to hold the number of rows in the {@link FooTable.Rows#array} before paging is applied.
+			 * @type {number}
+			 * @private
+			 */
+			this._total = 0;
+		},
+
+		/* PROTECTED */
+		/**
+		 * Checks the supplied data and options for the paging component.
+		 * @instance
+		 * @protected
+		 * @param {object} data - The jQuery data object from the parent table.
+		 * @fires FooTable.Paging#"preinit.ft.paging"
+		 */
+		preinit: function(data){
+			var self = this;
+			/**
+			 * The preinit.ft.paging event is raised before the UI is created and provides the tables jQuery data object for additional options parsing.
+			 * Calling preventDefault on this event will disable the component.
+			 * @event FooTable.Paging#"preinit.ft.paging"
+			 * @param {jQuery.Event} e - The jQuery.Event object for the event.
+			 * @param {FooTable.Table} ft - The instance of the plugin raising the event.
+			 * @param {object} data - The jQuery data object of the table raising the event.
+			 */
+			this.ft.raise('preinit.ft.paging', [data]).then(function(){
+				if (self.ft.$el.hasClass('footable-paging'))
+					self.enabled = true;
+				self.enabled = F.is.boolean(data.paging)
+					? data.paging
+					: self.enabled;
+
+				if (!self.enabled) return;
+
+				self.size = F.is.number(data.pagingSize)
+					? data.pagingSize
+					: self.size;
+
+				self.current = F.is.number(data.pagingCurrent)
+					? data.pagingCurrent
+					: self.current;
+
+				self.limit = F.is.number(data.pagingLimit)
+					? data.pagingLimit
+					: self.limit;
+
+				if (self.ft.$el.hasClass('footable-paging-left'))
+					self.position = 'left';
+				if (self.ft.$el.hasClass('footable-paging-center'))
+					self.position = 'center';
+				if (self.ft.$el.hasClass('footable-paging-right'))
+					self.position = 'right';
+
+				self.position = F.is.string(data.pagingPosition)
+					? data.pagingPosition
+					: self.position;
+
+				self.countFormat = F.is.string(data.pagingCountFormat)
+					? data.pagingCountFormat
+					: self.countFormat;
+
+				self.total = Math.ceil(self.ft.rows.array.length / self.size);
+				self._total = self.total;
+			}, function(){
+				self.enabled = false;
+			});
+		},
+		/**
+		 * Initializes the paging component for the plugin using the supplied table and options.
+		 * @instance
+		 * @protected
+		 * @fires FooTable.Paging#"init.ft.paging"
+		 */
+		init: function(){
+			/**
+			 * The init.ft.paging event is raised before its UI is generated.
+			 * Calling preventDefault on this event will disable the component.
+			 * @event FooTable.Paging#"init.ft.paging"
+			 * @param {jQuery.Event} e - The jQuery.Event object for the event.
+			 * @param {FooTable.Table} ft - The instance of the plugin raising the event.
+			 */
+			var self = this;
+			this.ft.raise('init.ft.paging').then(function(){
+				self.$create();
+			}, function(){
+				self.enabled = false;
+			});
+		},
+		/**
+		 * Destroys the paging component removing any UI generated from the table.
+		 * @instance
+		 * @protected
+		 * @fires FooTable.Paging#"destroy.ft.paging"
+		 */
+		destroy: function () {
+			/**
+			 * The destroy.ft.paging event is raised before its UI is removed.
+			 * Calling preventDefault on this event will prevent the component from being destroyed.
+			 * @event FooTable.Paging#"destroy.ft.paging"
+			 * @param {jQuery.Event} e - The jQuery.Event object for the event.
+			 * @param {FooTable.Table} ft - The instance of the plugin raising the event.
+			 */
+			var self = this;
+			this.ft.raise('destroy.ft.paging').then(function(){
+				self.ft.$el.removeClass('footable-paging')
+					.find('tfoot > tr.footable-paging').remove();
+			});
+		},
+		/**
+		 * Performs the actual paging against the {@link FooTable.Rows#current} array removing all rows that are not on the current visible page.
+		 * @instance
+		 * @protected
+		 */
+		predraw: function(){
+			this.total = Math.ceil(this.ft.rows.array.length / this.size);
+			this.current = this.current > this.total ? this.total : (this.current < 1 ? 1 : this.current);
+			this._total = this.ft.rows.array.length;
+			if (this.ft.rows.array.length > this.size)
+				this.ft.rows.array = this.ft.rows.array.splice((this.current - 1) * this.size, this.size);
+		},
+		/**
+		 * Updates the paging UI setting the state of the pagination control.
+		 * @instance
+		 * @protected
+		 */
+		draw: function(){
+			this.$cell.attr('colspan', this.ft.columns.visibleColspan);
+			this._setVisible(this.current, this.current > this._previous);
+			this._setNavigation(true);
+		},
+		/**
+		 * Creates the paging UI from the current options setting the various jQuery properties of this component.
+		 * @instance
+		 * @protected
+		 */
+		$create: function(){
+			var self = this,
+				multiple = self.total > 1,
+				link = function(attr, html, klass){
+					return $('<li/>', {
+						'class': klass
+					}).attr('data-page', attr)
+						.append($('<a/>', {
+							'class': 'footable-page-link',
+							href: '#'
+						}).data('page', attr).html(html));
+				},
+				position;
+
+			switch (self.position){
+				case 'left': position = 'footable-paging-left'; break;
+				case 'right': position = 'footable-paging-right'; break;
+				default: position = 'footable-paging-center'; break;
+			}
+			self.ft.$el.addClass('footable-paging').addClass(position);
+			self.$cell = $('<td/>').attr('colspan', self.ft.columns.visibleColspan);
+			self.$row = $('<tr/>', { 'class': 'footable-paging' }).append(self.$cell).appendTo(self.ft.$el.children('tfoot'));
+			self.$pagination = $('<ul/>', { 'class': 'pagination' }).on('click.footable', 'a.footable-page-link', { self: self }, self._onPageClicked);
+			self.$count = $('<span/>', { 'class': 'label label-default' });
+
+			if (self.total == 0 || self.total == 1){
+				self.$pagination.empty();
+				self.$count.text(self.total + ' of ' + self.total);
+				self._total = self.total;
+				return;
+			}
+			self.$pagination.empty();
+			if (multiple) {
+				self.$pagination.append(link('first', self.strings.first, 'footable-page-nav'));
+				self.$pagination.append(link('prev', self.strings.prev, 'footable-page-nav'));
+				if (self.limit > 0 && self.limit < self.total){
+					self.$pagination.append(link('prev-limit', self.strings.prevPages, 'footable-page-nav'));
+				}
+			}
+			for (var i = 0, $li; i < self.total; i++){
+				$li = link(i + 1, i + 1, 'footable-page');
+				self.$pagination.append($li);
+			}
+			if (multiple){
+				if (self.limit > 0 && self.limit < self.total){
+					self.$pagination.append(link('next-limit', self.strings.nextPages, 'footable-page-nav'));
+				}
+				self.$pagination.append(link('next', self.strings.next, 'footable-page-nav'));
+				self.$pagination.append(link('last', self.strings.last, 'footable-page-nav'));
+			}
+
+			self.$cell.append(self.$pagination, $('<div/>', {'class': 'divider'}), self.$count);
+			self._total = self.total;
+		},
+
+		/* PUBLIC */
+		/**
+		 * Pages to the first page.
+		 * @instance
+		 * @returns {jQuery.Promise}
+		 * @fires FooTable.Paging#"before.ft.paging"
+		 * @fires FooTable.Paging#"after.ft.paging"
+		 */
+		first: function(){
+			return this._set(1);
+		},
+		/**
+		 * Pages to the previous page.
+		 * @instance
+		 * @returns {jQuery.Promise}
+		 * @fires FooTable.Paging#"before.ft.paging"
+		 * @fires FooTable.Paging#"after.ft.paging"
+		 */
+		prev: function(){
+			return this._set(this.current - 1 > 0 ? this.current - 1 : 1);
+		},
+		/**
+		 * Pages to the next page.
+		 * @instance
+		 * @returns {jQuery.Promise}
+		 * @fires FooTable.Paging#"before.ft.paging"
+		 * @fires FooTable.Paging#"after.ft.paging"
+		 */
+		next: function(){
+			return this._set(this.current + 1 < this.total ? this.current + 1 : this.total);
+		},
+		/**
+		 * Pages to the last page.
+		 * @instance
+		 * @returns {jQuery.Promise}
+		 * @fires FooTable.Paging#"before.ft.paging"
+		 * @fires FooTable.Paging#"after.ft.paging"
+		 */
+		last: function(){
+			return this._set(this.total);
+		},
+		/**
+		 * Pages to the specified page.
+		 * @instance
+		 * @param {number} page - The page number to go to.
+		 * @returns {jQuery.Promise}
+		 * @fires FooTable.Paging#"before.ft.paging"
+		 * @fires FooTable.Paging#"after.ft.paging"
+		 */
+		goto: function(page){
+			return this._set(page > this.total ? this.total : (page < 1 ? 1 : page));
+		},
+		/**
+		 * Shows the previous X number of pages in the pagination control where X is the value set by the {@link FooTable.Defaults#paging} - limit option value.
+		 * @instance
+		 */
+		prevPages: function(){
+			var page = this.$pagination.children('li.footable-page.visible:first').data('page') - 1;
+			this._setVisible(page, true);
+			this._setNavigation(false);
+		},
+		/**
+		 * Shows the next X number of pages in the pagination control where X is the value set by the {@link FooTable.Defaults#paging} - limit option value.
+		 * @instance
+		 */
+		nextPages: function(){
+			var page = this.$pagination.children('li.footable-page.visible:last').data('page') + 1;
+			this._setVisible(page, false);
+			this._setNavigation(false);
+		},
+
+		/* PRIVATE */
+		/**
+		 * Performs the required steps to handle paging including the raising of the {@link FooTable.Paging#"before.ft.paging"} and {@link FooTable.Paging#"after.ft.paging"} events.
+		 * @instance
+		 * @private
+		 * @param {number} page - The page to set.
+		 * @returns {jQuery.Promise}
+		 * @fires FooTable.Paging#"before.ft.paging"
+		 * @fires FooTable.Paging#"after.ft.paging"
+		 */
+		_set: function(page){
+			var self = this,
+				pager = new F.Pager(self.total, self.current, self.size, page, page > self.current);
+			/**
+			 * The before.ft.paging event is raised before a sort is applied and allows listeners to modify the pager or cancel it completely by calling preventDefault on the jQuery.Event object.
+			 * @event FooTable.Paging#"before.ft.paging"
+			 * @param {jQuery.Event} e - The jQuery.Event object for the event.
+			 * @param {FooTable.Table} ft - The instance of the plugin raising the event.
+			 * @param {FooTable.Pager} pager - The pager that is about to be applied.
+			 */
+			return self.ft.raise('before.ft.paging', [pager]).then(function(){
+				pager.page = pager.page > pager.total ? pager.total	: pager.page;
+				pager.page = pager.page < 1 ? 1 : pager.page;
+				if (self.current == page) return $.when();
+				self._previous = self.current;
+				self.current = pager.page;
+				return self.ft.draw().then(function(){
+					/**
+					 * The after.ft.paging event is raised after a pager has been applied.
+					 * @event FooTable.Paging#"after.ft.paging"
+					 * @param {jQuery.Event} e - The jQuery.Event object for the event.
+					 * @param {FooTable.Table} ft - The instance of the plugin raising the event.
+					 * @param {FooTable.Pager} pager - The pager that has been applied.
+					 */
+					self.ft.raise('after.ft.paging', [pager]);
+				});
+			});
+		},
+		/**
+		 * Sets the state for the navigation links of the pagination control and optionally sets the active class state on the current page link.
+		 * @instance
+		 * @private
+		 * @param {boolean} active - Whether or not to set the active class state on the individual page links.
+		 */
+		_setNavigation: function(active){
+			if (this.current == 1) {
+				this.$pagination.children('li[data-page="first"],li[data-page="prev"]').addClass('disabled');
+			} else {
+				this.$pagination.children('li[data-page="first"],li[data-page="prev"]').removeClass('disabled');
+			}
+
+			if (this.current == this.total) {
+				this.$pagination.children('li[data-page="next"],li[data-page="last"]').addClass('disabled');
+			} else {
+				this.$pagination.children('li[data-page="next"],li[data-page="last"]').removeClass('disabled');
+			}
+
+			if ((this.$pagination.children('li.footable-page.visible:first').data('page') || 1) == 1) {
+				this.$pagination.children('li[data-page="prev-limit"]').addClass('disabled');
+			} else {
+				this.$pagination.children('li[data-page="prev-limit"]').removeClass('disabled');
+			}
+
+			if ((this.$pagination.children('li.footable-page.visible:last').data('page') || this.limit) == this.total) {
+				this.$pagination.children('li[data-page="next-limit"]').addClass('disabled');
+			} else {
+				this.$pagination.children('li[data-page="next-limit"]').removeClass('disabled');
+			}
+
+			if (this.limit > 0 && this.total < this.limit){
+				this.$pagination.children('li[data-page="prev-limit"],li[data-page="next-limit"]').hide();
+			} else {
+				this.$pagination.children('li[data-page="prev-limit"],li[data-page="next-limit"]').show();
+			}
+
+			if (active){
+				this.$pagination.children('li.footable-page').removeClass('active').filter('li[data-page="' + this.current + '"]').addClass('active');
+			}
+		},
+		/**
+		 * Sets the visible page using the supplied parameters.
+		 * @instance
+		 * @private
+		 * @param {number} page - The page to make visible.
+		 * @param {boolean} right - If set to true the supplied page will be the right most visible pagination link.
+		 */
+		_setVisible: function(page, right){
+			if (this.limit > 0 && this.total > this.limit){
+				if (!this.$pagination.children('li.footable-page[data-page="'+page+'"]').hasClass('visible')){
+					var start = 0, end = 0;
+					if (right == true){
+						end = page > this.total ? this.total : page;
+						start = end - this.limit;
+					} else {
+						start = page < 1 ? 0 : page - 1;
+						end = start + this.limit;
+					}
+					if (start < 0){
+						start = 0;
+						end = this.limit > this.total ? this.total : this.limit;
+					}
+					if (end > this.total){
+						end = this.total;
+						start = this.total - this.limit < 0 ? 0 : this.total - this.limit;
+					}
+					this.$pagination.children('li.footable-page').removeClass('visible').slice(start, end).addClass('visible');
+				}
+			} else {
+				this.$pagination.children('li.footable-page').removeClass('visible').slice(0, this.total).addClass('visible');
+			}
+			var first = (this.size * (page - 1)) + 1,
+				last = this.size * page;
+			if (this.ft.rows.array.length == 0){
+				first = 0;
+				last = 0;
+			} else {
+				last = last > this._total ? this._total : last;
+			}
+			this._setCount(page, this.total, first, last, this._total);
+		},
+		/**
+		 * Uses the countFormat option to generate the text using the supplied parameters.
+		 * @param {number} currentPage - The current page.
+		 * @param {number} totalPages - The total number of pages.
+		 * @param {number} pageFirst - The first row number of the current page.
+		 * @param {number} pageLast - The last row number of the current page.
+		 * @param {number} totalRows - The total number of rows.
+		 * @private
+		 */
+		_setCount: function(currentPage, totalPages, pageFirst, pageLast, totalRows){
+			this.$count.text(this.countFormat.replace(/\{CP}/g, currentPage)
+				.replace(/\{TP}/g, totalPages)
+				.replace(/\{PF}/g, pageFirst)
+				.replace(/\{PL}/g, pageLast)
+				.replace(/\{TR}/g, totalRows));
+		},
+		/**
+		 * Handles the click event for all links in the pagination control.
+		 * @instance
+		 * @private
+		 * @param {jQuery.Event} e - The event object for the event.
+		 */
+		_onPageClicked: function(e){
+			e.preventDefault();
+			if ($(e.target).closest('li').is('.active,.disabled')) return;
+
+			var self = e.data.self, page = $(this).data('page');
+			switch(page){
+				case 'first': self.first();
+					return;
+				case 'prev': self.prev();
+					return;
+				case 'next': self.next();
+					return;
+				case 'last': self.last();
+					return;
+				case 'prev-limit': self.prevPages();
+					return;
+				case 'next-limit': self.nextPages();
+					return;
+				default: self._set(page);
+					return;
+			}
+		}
+	});
+
+	F.components.core.register('paging', F.Paging, 0);
+
+})(jQuery, FooTable);
+(function(F){
+	/**
+	 * An object containing the paging options for the plugin. Added by the {@link FooTable.Paging} component.
+	 * @type {object}
+	 * @prop {boolean} enabled=false - Whether or not to allow paging on the table.
+	 * @prop {string} countFormat="{CP} of {TP}" - A string format used to generate the page count text.
+	 * @prop {number} current=1 - The page number to display.
+	 * @prop {number} limit=5 - The maximum number of page links to display at once.
+	 * @prop {string} position="center" - The string used to specify the alignment of the pagination control.
+	 * @prop {number} size=10 - The number of rows displayed per page.
+	 * @prop {object} strings - An object containing the strings used by the paging buttons.
+	 * @prop {string} strings.first="&laquo;" - The string used for the 'first' button.
+	 * @prop {string} strings.prev="&lsaquo;" - The string used for the 'previous' button.
+	 * @prop {string} strings.next="&rsaquo;" - The string used for the 'next' button.
+	 * @prop {string} strings.last="&raquo;" - The string used for the 'last' button.
+	 * @prop {string} strings.prevPages="..." - The string used for the 'previous X pages' button.
+	 * @prop {string} strings.nextPages="..." - The string used for the 'next X pages' button.
+	 */
+	F.Defaults.prototype.paging = {
+		enabled: false,
+		countFormat: '{CP} of {TP}',
+		current: 1,
+		limit: 5,
+		position: 'center',
+		size: 10,
+		strings: {
+			first: '&laquo;',
+			prev: '&lsaquo;',
+			next: '&rsaquo;',
+			last: '&raquo;',
+			prevPages: '...',
+			nextPages: '...'
+		}
+	};
+})(FooTable);
+(function(F){
+	/**
+	 * Navigates to the specified page number. Added by the {@link FooTable.Paging} component.
+	 * @instance
+	 * @param {number} num - The page number to go to.
+	 * @returns {jQuery.Promise}
+	 * @fires FooTable.Paging#paging_changing
+	 * @fires FooTable.Paging#paging_changed
+	 * @see FooTable.Paging#goto
+	 */
+	F.Table.prototype.gotoPage = function(num){
+		return this.use(F.Paging).goto(num);
+	};
+
+	/**
+	 * Navigates to the next page. Added by the {@link FooTable.Paging} component.
+	 * @instance
+	 * @returns {jQuery.Promise}
+	 * @fires FooTable.Paging#paging_changing
+	 * @fires FooTable.Paging#paging_changed
+	 * @see FooTable.Paging#next
+	 */
+	F.Table.prototype.nextPage = function(){
+		return this.use(F.Paging).next();
+	};
+
+	/**
+	 * Navigates to the previous page. Added by the {@link FooTable.Paging} component.
+	 * @instance
+	 * @returns {jQuery.Promise}
+	 * @fires FooTable.Paging#paging_changing
+	 * @fires FooTable.Paging#paging_changed
+	 * @see FooTable.Paging#prev
+	 */
+	F.Table.prototype.prevPage = function(){
+		return this.use(F.Paging).prev();
+	};
+
+	/**
+	 * Navigates to the first page. Added by the {@link FooTable.Paging} component.
+	 * @instance
+	 * @returns {jQuery.Promise}
+	 * @fires FooTable.Paging#paging_changing
+	 * @fires FooTable.Paging#paging_changed
+	 * @see FooTable.Paging#first
+	 */
+	F.Table.prototype.firstPage = function(){
+		return this.use(F.Paging).first();
+	};
+
+	/**
+	 * Navigates to the last page. Added by the {@link FooTable.Paging} component.
+	 * @instance
+	 * @returns {jQuery.Promise}
+	 * @fires FooTable.Paging#paging_changing
+	 * @fires FooTable.Paging#paging_changed
+	 * @see FooTable.Paging#last
+	 */
+	F.Table.prototype.lastPage = function(){
+		return this.use(F.Paging).last();
+	};
+
+	/**
+	 * Shows the next X number of pages in the pagination control where X is the value set by the {@link FooTable.Defaults#paging} - limit.size option value. Added by the {@link FooTable.Paging} component.
+	 * @instance
+	 * @see FooTable.Paging#nextPages
+	 */
+	F.Table.prototype.nextPages = function(){
+		return this.use(F.Paging).nextPages();
+	};
+
+	/**
+	 * Shows the previous X number of pages in the pagination control where X is the value set by the {@link FooTable.Defaults#paging} - limit.size option value. Added by the {@link FooTable.Paging} component.
+	 * @instance
+	 * @see FooTable.Paging#prevPages
+	 */
+	F.Table.prototype.prevPages = function(){
+		return this.use(F.Paging).prevPages();
+	};
+})(FooTable);

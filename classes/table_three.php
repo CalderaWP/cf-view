@@ -213,7 +213,8 @@ class table_three {
 
 		$this->columns[] = array(
 			'name' => 'entry_id',
-			'title' => __( 'Entry ID', 'cf-view' )
+			'title' => __( 'Entry ID', 'cf-view' ),
+			'sortable' => "true"
 		);
 
 
@@ -224,7 +225,8 @@ class table_three {
 
 			$this->columns[] = array(
 				'name' => $slug,
-				'title' => $title
+				'title' => $title,
+				'sortable' => "true"
 			);
 
 		}
@@ -232,7 +234,8 @@ class table_three {
 			$this->columns[] = array(
 				'name' => 'edit',
 				'title' => __( 'Edit', 'cf-view' ),
-				'breakpoints' => 'xs'
+				'breakpoints' => 'xs',
+				'sortable' => "false"
 			);
 		}
 
@@ -268,6 +271,10 @@ class table_three {
 
 		$row_id = 1;
 		foreach( $entries as $entry ) {
+			if( ! isset ($entry[ 'data' ] ) ) {
+				continue;
+			}
+
 			$_row = array();
 			$_row[ 'entry_id' ] = $entry_id = $entry['_entry_id'];
 

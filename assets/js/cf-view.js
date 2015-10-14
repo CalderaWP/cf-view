@@ -1,5 +1,6 @@
 /* globals jQuery, CF_VIEW_FOO_TABLE_OPTIONS */
 jQuery( document ).ready( function ( $ ) {
+    $
     var full_data = $( '#cf-view-full-parts' ).data( 'content' );
 
     $( '.cf-view-shortened-view' ).on( 'click', function(e){

@@ -581,3 +581,100 @@ table.footable > tbody > tr.footable-empty > td {
 .fooicon-sort-desc:before {
 	content: "\f161";
 }
+table.footable > thead > tr.footable-filtering > th {
+	border-bottom-width: 1px;
+	font-weight: normal;
+}
+table.footable > thead > tr.footable-filtering > th,
+table.footable.footable-filtering-right > thead > tr.footable-filtering > th {
+	text-align: right;
+}
+table.footable.footable-filtering-left > thead > tr.footable-filtering > th {
+	text-align: left;
+}
+table.footable.footable-filtering-center > thead > tr.footable-filtering > th {
+	text-align: center;
+}
+table.footable > thead > tr.footable-filtering > th div.form-group {
+	margin-bottom: 0;
+}
+table.footable > thead > tr.footable-filtering > th div.form-group+div.form-group {
+	margin-top: 5px;
+}
+table.footable > thead > tr.footable-filtering > th div.input-group {
+	width: 100%;
+}
+table.footable > thead > tr.footable-filtering > th ul.dropdown-menu > li > a.checkbox {
+	margin: 0;
+	display: block;
+	position: relative;
+}
+table.footable > thead > tr.footable-filtering > th ul.dropdown-menu > li > a.checkbox > label {
+	display: block;
+	padding-left: 20px;
+}
+table.footable > thead > tr.footable-filtering > th ul.dropdown-menu > li > a.checkbox input[type="checkbox"] {
+	position: absolute;
+	margin-left: -20px;
+}
+@media (min-width: 768px) {
+	table.footable > thead > tr.footable-filtering > th div.input-group {
+		width: auto;
+	}
+	table.footable > thead > tr.footable-filtering > th div.form-group {
+		margin-left: 2px;
+		margin-right: 2px;
+	}
+	table.footable > thead > tr.footable-filtering > th div.form-group+div.form-group {
+		margin-top: 0;
+	}
+}
+td.footable-sortable,
+th.footable-sortable {
+	position: relative;
+	padding-right: 30px;
+	cursor: pointer;
+}
+td.footable-sortable > span.fooicon,
+th.footable-sortable > span.fooicon {
+	position: absolute;
+	right: 6px;
+	top: 50%;
+	margin-top: -7px;
+	opacity: 0;
+	transition: opacity 0.3s ease-in;
+}
+td.footable-sortable:hover > span.fooicon,
+th.footable-sortable:hover > span.fooicon {
+	opacity: 1;
+}
+td.footable-sortable.footable-asc > span.fooicon,
+th.footable-sortable.footable-asc > span.fooicon,
+td.footable-sortable.footable-desc > span.fooicon,
+th.footable-sortable.footable-desc > span.fooicon {
+	opacity: 1;
+}
+table.footable > tfoot > tr.footable-paging > td > ul.pagination {
+	margin: 10px 0 0 0;
+}
+table.footable > tfoot > tr.footable-paging > td > span.label {
+	display: inline-block;
+	margin: 0 0 10px 0;
+	padding: 4px 10px;
+}
+table.footable > tfoot > tr.footable-paging > td,
+table.footable-paging-center > tfoot > tr.footable-paging > td {
+	text-align: center;
+}
+table.footable-paging-left > tfoot > tr.footable-paging > td {
+	text-align: left;
+}
+table.footable-paging-right > tfoot > tr.footable-paging > td {
+	text-align: right;
+}
+ul.pagination > li.footable-page {
+	display: none;
+}
+ul.pagination > li.footable-page.visible {
+	display: inline;
+}
